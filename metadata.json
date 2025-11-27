@@ -1,0 +1,8 @@
+{
+  "name": "NotePilot AI",
+  "description": "An intelligent meeting assistant that joins your calls, records the session, and generates comprehensive summaries using Gemini 2.5.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
