@@ -48,6 +48,13 @@ export interface VideoClip {
   end: number;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: Date;
+}
+
 export interface SummaryData {
   meetingTitle: string;
   date: string;

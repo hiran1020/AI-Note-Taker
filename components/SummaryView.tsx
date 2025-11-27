@@ -1,7 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { SummaryData, Meeting, VideoClip } from '../types';
+import { SummaryData, Meeting, VideoClip, ChatMessage } from '../types';
 import { jsPDF } from 'jspdf';
+import { askMeetingQuestion } from '../services/geminiService';
 
 interface SummaryViewProps {
   summary: SummaryData;
@@ -11,7 +12,7 @@ interface SummaryViewProps {
 }
 
 const SummaryView: React.FC<SummaryViewProps> = ({ summary, meeting, videoBlob, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'notes' | 'transcript' | 'email' | 'highlights'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'transcript' | 'email' | 'highlights' | 'chat'>('notes');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   
   // Highlight / Clip State
@@ -20,6 +21,14 @@ const SummaryView: React.FC<SummaryViewProps> = ({ summary, meeting, videoBlob, 
   const [newClipEnd, setNewClipEnd] = useState<number | null>(null);
   const [newClipLabel, setNewClipLabel] = useState('');
   const [playingClipId, setPlayingClipId] = useState<string | null>(null);
+
+  // Chat State
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    { id: '1', role: 'assistant', text: 'Hi! I\'ve analyzed the meeting. Ask me anything about what was discussed.', timestamp: new Date() }
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -30,6 +39,12 @@ const SummaryView: React.FC<SummaryViewProps> = ({ summary, meeting, videoBlob, 
       return () => URL.revokeObjectURL(url);
     }
   }, [videoBlob]);
+
+  useEffect(() => {
+    if (activeTab === 'chat' && chatEndRef.current) {
+        chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, activeTab]);
 
   // Monitor video time to stop playback if we are playing a specific clip
   const handleTimeUpdate = () => {
@@ -92,6 +107,36 @@ const SummaryView: React.FC<SummaryViewProps> = ({ summary, meeting, videoBlob, 
 
   const deleteClip = (id: string) => {
     setClips(clips.filter(c => c.id !== id));
+  };
+
+  const handleSendMessage = async () => {
+      if (!chatInput.trim() || isChatLoading) return;
+      
+      const userMsg: ChatMessage = {
+          id: Date.now().toString(),
+          role: 'user',
+          text: chatInput,
+          timestamp: new Date()
+      };
+      
+      setChatMessages(prev => [...prev, userMsg]);
+      setChatInput('');
+      setIsChatLoading(true);
+      
+      try {
+          const responseText = await askMeetingQuestion(userMsg.text, summary);
+          const aiMsg: ChatMessage = {
+              id: (Date.now() + 1).toString(),
+              role: 'assistant',
+              text: responseText,
+              timestamp: new Date()
+          };
+          setChatMessages(prev => [...prev, aiMsg]);
+      } catch (err) {
+          console.error(err);
+      } finally {
+          setIsChatLoading(false);
+      }
   };
 
   const getSentimentColor = (sentiment: string) => {
@@ -324,28 +369,35 @@ const SummaryView: React.FC<SummaryViewProps> = ({ summary, meeting, videoBlob, 
 
         {/* Right Col: Tabs */}
         <div className="lg:col-span-3 bg-slate-800 border border-slate-700 rounded-xl shadow-xl flex flex-col overflow-hidden">
-            <div className="flex border-b border-slate-700 bg-slate-900/50">
+            <div className="flex border-b border-slate-700 bg-slate-900/50 overflow-x-auto">
                 <button 
                     onClick={() => setActiveTab('notes')}
-                    className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'notes' ? 'border-blue-500 text-blue-400 bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                    className={`flex-1 py-4 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'notes' ? 'border-blue-500 text-blue-400 bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
                 >
                     AI Notes
                 </button>
                 <button 
                     onClick={() => setActiveTab('transcript')}
-                    className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'transcript' ? 'border-blue-500 text-blue-400 bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                    className={`flex-1 py-4 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'transcript' ? 'border-blue-500 text-blue-400 bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
                 >
                     Transcript
                 </button>
                 <button 
                     onClick={() => setActiveTab('highlights')}
-                    className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'highlights' ? 'border-blue-500 text-blue-400 bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                    className={`flex-1 py-4 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'highlights' ? 'border-blue-500 text-blue-400 bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
                 >
                     Highlights
                 </button>
+                 <button 
+                    onClick={() => setActiveTab('chat')}
+                    className={`flex-1 py-4 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap flex items-center justify-center gap-2 ${activeTab === 'chat' ? 'border-purple-500 text-purple-400 bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                    Ask AI
+                </button>
                 <button 
                     onClick={() => setActiveTab('email')}
-                    className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'email' ? 'border-blue-500 text-blue-400 bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                    className={`flex-1 py-4 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'email' ? 'border-blue-500 text-blue-400 bg-slate-800' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
                 >
                     Follow-up
                 </button>
@@ -484,6 +536,57 @@ const SummaryView: React.FC<SummaryViewProps> = ({ summary, meeting, videoBlob, 
                                     </div>
                                 ))
                             )}
+                        </div>
+                    </div>
+                )}
+                
+                {activeTab === 'chat' && (
+                    <div className="h-full flex flex-col animate-fade-in">
+                        <div className="flex-grow overflow-y-auto space-y-4 mb-4 pr-2">
+                             {chatMessages.map((msg) => (
+                                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[80%] rounded-lg px-4 py-3 text-sm ${
+                                        msg.role === 'user' 
+                                        ? 'bg-purple-600 text-white rounded-tr-none' 
+                                        : 'bg-slate-700 text-slate-200 rounded-tl-none border border-slate-600'
+                                    }`}>
+                                        <p>{msg.text}</p>
+                                        <p className={`text-[10px] mt-1 text-right ${msg.role === 'user' ? 'text-purple-200' : 'text-slate-400'}`}>
+                                            {msg.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                        </p>
+                                    </div>
+                                </div>
+                             ))}
+                             {isChatLoading && (
+                                 <div className="flex justify-start">
+                                     <div className="bg-slate-700 rounded-lg rounded-tl-none px-4 py-3 border border-slate-600">
+                                         <div className="flex space-x-1">
+                                             <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+                                             <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                                             <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                                         </div>
+                                     </div>
+                                 </div>
+                             )}
+                             <div ref={chatEndRef} />
+                        </div>
+                        
+                        <div className="relative">
+                            <input
+                                type="text"
+                                value={chatInput}
+                                onChange={(e) => setChatInput(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                                placeholder="Ask a question about the meeting..."
+                                className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-4 pr-12 py-3 text-sm text-white focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all"
+                            />
+                            <button
+                                onClick={handleSendMessage}
+                                disabled={!chatInput.trim() || isChatLoading}
+                                className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                            </button>
                         </div>
                     </div>
                 )}

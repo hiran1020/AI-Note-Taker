@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { TranscriptSegment, MeetingHighlight } from "../types";
+import { TranscriptSegment, MeetingHighlight, SummaryData } from "../types";
 
 // Ensure API Key is available
 const apiKey = process.env.API_KEY || '';
@@ -109,4 +109,46 @@ export const generateMeetingSummary = async (
     console.error("Gemini API Error:", error);
     throw error;
   }
+};
+
+export const askMeetingQuestion = async (
+  question: string,
+  summaryData: SummaryData
+): Promise<string> => {
+    if (!apiKey) {
+      return "Error: API Key missing.";
+    }
+
+    const context = `
+      Meeting Title: ${summaryData.meetingTitle}
+      Date: ${summaryData.date}
+      Executive Summary: ${summaryData.summaryText}
+      Key Points: ${summaryData.keyPoints.join('; ')}
+      Action Items: ${summaryData.actionItems.join('; ')}
+      Transcript: 
+      ${summaryData.transcript.map(t => t.text).join(' ')}
+    `;
+
+    const prompt = `
+      You are a helpful assistant answering a question about a meeting that just occurred.
+      Use the provided meeting context to answer the user's question accurately.
+      If the answer is not in the context, say "I couldn't find that information in the meeting records."
+      
+      CONTEXT:
+      ${context}
+
+      USER QUESTION:
+      ${question}
+    `;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt
+      });
+      return response.text || "I couldn't generate an answer.";
+    } catch (error) {
+      console.error("Chat Error:", error);
+      return "Sorry, I encountered an error while processing your question.";
+    }
 };
